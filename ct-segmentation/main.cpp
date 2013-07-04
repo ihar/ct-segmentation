@@ -237,38 +237,42 @@ map <unsigned, Blob> ProcessBlobs(const map<unsigned, Blob> &blobs, const unsign
 **/
 CImg<> SegmentSlice(const CImg<> &slice) {
   CImg<short> segmented_slice;
-
   if (slice.is_empty()) {
     return segmented_slice;
   }
-
-  // Для определения области лёгких достаточно работать в 8-битовом динамическом диапазоне
   segmented_slice = slice.get_normalize(0, 255);
   /* Нужно найти седловую точку, по которой далее будет проводится пороговая фильтрация.
       Алгоритм: найти все седловые точки (значения слева и справа не меньше значения самой точки),
                 найти минимум среди всех седловых точек - нужное нам значение.
   */        
   CImg<unsigned> histo = segmented_slice.get_histogram(128, 0, 255);
-histo.display_graph("", 3);
-  histo.max() = 0; // Пик в нуле, больше всего фонового цвета
-  histo.max() = 0; // Пик в начале гистограммы, это тоже не лёгкие. Воздух в аппарате
-  // Седловая точка по умолчанию, если вдруг в цикле её найти не удастся
-  unsigned saddle_point = 55, prev_x = 0;
-  // Цикл начинается с 50, так как пороговое значение обычно всегда после 100 (=50 *2ширина столбика гистограммы)
-  cimg_for_insideX(histo, x, 55) {
-    unsigned curr_x = histo(x), before_x = histo(x-1), next_x = histo(x+1);
-    // Разность между предыдущем значением и последующим.
-    // Не должна быть сильно большой. В противном случае - curr_x нельзя считать седловой точкой
-    float diff = abs(1.0*before_x - 1.0*next_x);
-    if (0 == prev_x) prev_x = curr_x;
-    if ( (100 < curr_x ) && (4000 > curr_x) && (before_x >= curr_x)  && (next_x >= curr_x) && (diff < 500) ) {
-      if (curr_x < prev_x) {
-        saddle_point = x;
-        break;
-      }
-      prev_x = curr_x;
-    }
+  CImg<> histo2 = histo.get_blur(3); // Smoothed histogram for detection local minimum
+//histo.display_graph("", 3);
+//histo2.display_graph("", 3);
+  // Default saddle point 
+  int saddle_point = -1;
+  // What if there will be more that one local minimum?
+  vector<unsigned int> local_minima;
+  // Local minimum is the point that is less all its 8 neighbours
+  cimg_for_insideX(histo2, x, 4) {
+        float val = histo2[x];
+        if (val <= 3) continue; // avoiding original zero values
+        CImg<> neighbours(8, 1, 1, 1, 
+                        histo2[x-4], histo2[x-3], histo2[x-2], histo2[x-1], 
+                        histo2[x+1], histo2[x+2], histo2[x+3], histo2[x+4]);
+        float curr_min = 0.0f;
+        neighbours.max_min(curr_min);
+        if (val < curr_min) {
+          local_minima.push_back(x);
+        }
   } 
+  if ( !local_minima.empty() ) {
+    saddle_point = local_minima.back();
+  } else {
+    cout << endl << "SegmentSlice: can't find threshold value." << endl;
+    saddle_point = 55;
+    cout << "Will use approximate number = " << saddle_point << endl;
+  }
   // На четверти размера от исходного быстрее считать все характеристики и преобразовывать изображение
   segmented_slice.resize_halfXY();
   // Размываем, выделяем по порогу, избавляемся от мелкого шума
