@@ -314,7 +314,7 @@ CImg<> GetImgMask(const CImg<> &img) {
 }
  
 CImg<> GetSegmentedImg(const CImg<> &img, const CImg<> &mask) {
-  short min = img.min(); // Background color has lowest value
+  float min = img.min(); // Background color has lowest value
   CImg<> res(img.width(), img.height(), img.depth(), 1, 0);
   cimg_forXYZ(img, x, y, z) {
     res(x, y, z) = (0 == mask(x, y, z))? img(x, y, z) : min;
@@ -348,7 +348,7 @@ int main(int argc, char **argv) {
   string out_fname = ChangeExtension(argv[1], "_mask");
   mask_img.save_analyze(out_fname.c_str());
   
-  CImg<short> segmented_img = GetSegmentedImg(img, mask_img);
+  CImg<> segmented_img = GetSegmentedImg(img, mask_img);
   out_fname = ChangeExtension(argv[1], "_segm");  
   segmented_img.save_analyze(out_fname.c_str());
 
