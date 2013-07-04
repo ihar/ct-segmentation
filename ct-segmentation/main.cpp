@@ -301,7 +301,7 @@ CImg<> SegmentSlice(const CImg<> &slice) {
   return segmented1.resize_doubleXY();
 }
 
-CImg<> GetImgMask(const CImg<> &img) {
+CImg<unsigned char> GetImgMask(const CImg<> &img) {
   int layers = img.depth();
   CImg<> res(img.width(), img.height(), layers, 1, 0);
   cimg_forZ(img, z) {
@@ -336,7 +336,7 @@ string ChangeExtension(const string& path, const string& ext) {
 }
 
 int main(int argc, char **argv) {
-  CImg<short> img;
+  CImg<> img;
   if (argc > 1) {
     img.load_analyze(argv[1]);
   } else {
@@ -344,7 +344,7 @@ int main(int argc, char **argv) {
     exit(-1);
   }
 
-  CImg<short> mask_img = GetImgMask(img);
+  CImg<> mask_img = GetImgMask(img);
   string out_fname = ChangeExtension(argv[1], "_mask");
   mask_img.save_analyze(out_fname.c_str());
   
