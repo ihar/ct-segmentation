@@ -272,7 +272,7 @@ CImg<> SegmentSlice(const CImg<> &slice) {
   // Calculate blobs features
   CImg<> segmented1_labeled =  segmented1.get_label(false);
   map <unsigned, Blob> blobs = FindBlobs(segmented1_labeled);
-  // Delete nested blobs, blobs which has small area and blob in wring places of the image
+  // Delete nested blobs, blobs which has small area and blob in wrong places of the image
   map <unsigned, Blob> processed_blobs = ProcessBlobs(blobs, segmented1_labeled.width());
   // Show all blobs that survived
   segmented1.fill(1);
