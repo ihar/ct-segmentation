@@ -173,46 +173,38 @@ map <unsigned, Blob> ProcessBlobs(const map<unsigned, Blob> &blobs, const unsign
   }
   // Delete blobs with center of mass in extreme regions (image center or image border)
   const unsigned unit = image_width / 12; 
-  // It seems convienet to define measure unit as 1/12 of whole image size
+  // Now it seems convienet to define measure unit as 1/12 of whole image size
 
   it = processed_blobs.begin(); 
   while(it != processed_blobs.end()) {
     Blob blobik = it->second;
     pair<double, double> c = blobik.centroid;
-    if ( (c.second >= 3*unit) && (c.second <= 7*unit) && // сверху и снизу
-         (c.first >= 2*unit) && (c.first <= 10*unit) ) { // слева и справа
+    if ( (c.second >= 3*unit) && (c.second <= 7*unit) && // up and down
+         (c.first >= 2*unit) && (c.first <= 10*unit) ) { // left and right
       it++; 
     } else {
       it = processed_blobs.erase(it);  
     }
   }  
-  
-  // Определяем пороговую площадь блоба.
-  // Если блобов меньше 3, то пороговый блоб - который с минимальной площадью
-  // Если блобов больше 3, то оставляем блоб с третьей по величине площадью.
   vector<unsigned> blobs_areas;
   for (it = processed_blobs.begin(); it != processed_blobs.end(); ++it) {
     blobs_areas.push_back(it->second.area);
   }
-  if (blobs_areas.empty()) { // На тот случай, если подходящих блобов вообще не нашлось
+  if (blobs_areas.empty()) { 
     blobs_areas.push_back(0);
   }
-  sort(blobs_areas.begin(), blobs_areas.end(), std::greater<unsigned>()); // по убыванию площадей
+  sort(blobs_areas.begin(), blobs_areas.end(), std::greater<unsigned>()); 
   unsigned area_threshold, thresh_num;
-  // Сначала берём в качестве пороговой площадь первого по величине лёгкого
   thresh_num = 0;
   area_threshold = blobs_areas[thresh_num];
-  /* Первая площадь - первое лёгкое, вторая - второе лёгкое.
-      Если эти площади сильно отличаются по размеру, то,
-      скорее всего, имеем дело с лёгкими, которые соединены и представляют собой один большой блоб.
-      В этом случае первая площадь - оба лёгких, вторая - лишний блоб, который нужно будет удалять. 
+  /* The first area is for the one lung, the second is for another.
+     If the areas deffer a lot, then we deal with connected lungs.
+     In this case the first area is for both lungs, the second area is wrong blob that should be eliminated
   */
   if (blobs_areas.size() > 1) {
     double ratio1 = 1.0 * blobs_areas[0] / (blobs_areas[0] + blobs_areas[1]),
           ratio2 = 1.0 * blobs_areas[1] / (blobs_areas[0] + blobs_areas[1]);
     if (ratio1 < 5 * ratio2) { 
-      // Опачки, а второе-то тоже похоже на первое, но меньше по размеру. Берём его.
-      // Поэтому в качестве порогового берём первое.
       area_threshold = blobs_areas[1];
       --thresh_num;
     }
@@ -233,7 +225,7 @@ map <unsigned, Blob> ProcessBlobs(const map<unsigned, Blob> &blobs, const unsign
 /**
   Segmentation of a CT slice
   \param  slice CT slice which should pe segmented
-  \result Segmented image. Область, не принадлежащая лёгкому удаляется (=0)
+  \result Region of interest for the lungs.
 **/
 CImg<> SegmentSlice(const CImg<> &slice) {
   CImg<short> segmented_slice;
@@ -241,14 +233,9 @@ CImg<> SegmentSlice(const CImg<> &slice) {
     return segmented_slice;
   }
   segmented_slice = slice.get_normalize(0, 255);
-  /* Нужно найти седловую точку, по которой далее будет проводится пороговая фильтрация.
-      Алгоритм: найти все седловые точки (значения слева и справа не меньше значения самой точки),
-                найти минимум среди всех седловых точек - нужное нам значение.
-  */        
+  // It is necessary to find a threshold point for segmentation.
   CImg<unsigned> histo = segmented_slice.get_histogram(128, 0, 255);
   CImg<> histo2 = histo.get_blur(3); // Smoothed histogram for detection local minimum
-//histo.display_graph("", 3);
-//histo2.display_graph("", 3);
   // Default saddle point 
   int saddle_point = -1;
   // What if there will be more that one local minimum?
@@ -256,7 +243,7 @@ CImg<> SegmentSlice(const CImg<> &slice) {
   // Local minimum is the point that is less all its 8 neighbours
   cimg_for_insideX(histo2, x, 4) {
         float val = histo2[x];
-        if (val <= 3) continue; // avoiding original zero values
+        if (val <= 3) continue; // because threshold point always has greater value
         CImg<> neighbours(8, 1, 1, 1, 
                         histo2[x-4], histo2[x-3], histo2[x-2], histo2[x-1], 
                         histo2[x+1], histo2[x+2], histo2[x+3], histo2[x+4]);
@@ -273,22 +260,21 @@ CImg<> SegmentSlice(const CImg<> &slice) {
     saddle_point = 55;
     cout << "Will use approximate number = " << saddle_point << endl;
   }
-  // На четверти размера от исходного быстрее считать все характеристики и преобразовывать изображение
+  // Speed up image processing by decreasing original image size
   segmented_slice.resize_halfXY();
-  // Размываем, выделяем по порогу, избавляемся от мелкого шума
   CImg<> segmented1 = segmented_slice.get_blur_median(3).get_threshold(2*saddle_point).get_dilate(3).get_erode(3);
-  // Начиная с каждого угла залить чёрный цвет белым, flood_fill
+  // Flood fill from each corner
   unsigned char color[] = {1};
   segmented1.draw_fill(0, 0, color);
   segmented1.draw_fill(segmented1.width()-1, 0, color);
   segmented1.draw_fill(0, segmented1.height()-1, color);
   segmented1.draw_fill(segmented1.width()-1, segmented1.height()-1, color);
-  // Посчёт характеристик блобов
+  // Calculate blobs features
   CImg<> segmented1_labeled =  segmented1.get_label(false);
   map <unsigned, Blob> blobs = FindBlobs(segmented1_labeled);
-  // Удаляем вложенные блобы, блобы в неправильных местах, блобы маленькой площади
+  // Delete nested blobs, blobs which has small area and blob in wring places of the image
   map <unsigned, Blob> processed_blobs = ProcessBlobs(blobs, segmented1_labeled.width());
-  // Отобразить оставшиеся блобы
+  // Show all blobs that survived
   segmented1.fill(1);
   map<unsigned, Blob>::iterator it;
   for (it = processed_blobs.begin(); it != processed_blobs.end(); ++it) {
@@ -301,6 +287,11 @@ CImg<> SegmentSlice(const CImg<> &slice) {
   return segmented1.resize_doubleXY();
 }
 
+//! Base method for getting image mask
+/**
+  \param  img Input image
+  \result Image mask, ROI
+**/
 CImg<unsigned char> GetImgMask(const CImg<> &img) {
   int layers = img.depth();
   CImg<> res(img.width(), img.height(), layers, 1, 0);
@@ -313,6 +304,12 @@ CImg<unsigned char> GetImgMask(const CImg<> &img) {
   return res;
 }
  
+ //! Segment image
+ /**
+  \param  img   Input image
+  \param  mask  Image mask with values 0 and 1 only
+  \result Segmented image
+ **/
 CImg<> GetSegmentedImg(const CImg<> &img, const CImg<> &mask) {
   float min = img.min(); // Background color has lowest value
   CImg<> res(img.width(), img.height(), img.depth(), 1, 0);
@@ -322,14 +319,30 @@ CImg<> GetSegmentedImg(const CImg<> &img, const CImg<> &mask) {
   return res;
 }
 
+//! Extract directory name from path to file
+/**
+  \param  path  Path to file
+  \result Name of directory where the file located
+**/
 string ExtractDirectory(const string& path) {
   return path.substr(0, path.find_last_of('\\') + 1);
 }
 
+//! Extract file name from full path to file
+/**
+  \param  path  Path to file
+  \result Base name of the file
+**/
 string ExtractFilename(const string& path) {
   return path.substr(path.find_last_of('\\') + 1);
 }
 
+//! Change file extension
+/**
+  \param  path  Path to file
+  \param  ext   New extension for the file.  Should be defined without point: not ".ext" but "ext"
+  \result Path to the file with changed file extension
+**/
 string ChangeExtension(const string& path, const string& ext) {
   string filename = ExtractFilename(path);
   return ExtractDirectory(path) + filename.substr(0, filename.find_last_of( '.' )) + ext;
